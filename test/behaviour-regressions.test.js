@@ -746,6 +746,43 @@ test('the generated resident patch pins a resident-owned credential store', () =
     'the store lives in the resident-owned runtime directory, never the shared home');
 });
 
+// ── 6. Operator round 3: remote model selection must never fail silently ────
+
+test('a rejected remote model selection surfaces a session error, never silence', async () => {
+  const ctx = proxyContext({
+    mappings: [{ localPath: '/anchor', target: 'build-host', remotePath: '/home/operator/work' }],
+    remoteSessions: [{ sessionId: 'session-bound', cwd: '/home/operator/work', updatedAt: 1 }],
+  });
+  // The transport rejects the forwarded selection exactly as the resident does
+  // for an unsupported reasoning effort.
+  ctx.transport.call = async (binding, endpoint) => {
+    if (endpoint === 'session/selectModel') {
+      const error = new Error('provider "deepinfra" model "XiaomiMiMo/MiMo-V2.6-Pro" does not support reasoning effort "xhigh"');
+      error.code = 'session/model-unavailable';
+      throw error;
+    }
+    if (endpoint === 'session/list') return { items: ctx.remoteSessions.map(item => ({ ...item })) };
+    return {};
+  };
+  const bound = { sessionId: 'session-bound', remoteSessionId: 'session-bound', target: 'build-host',
+    cwd: '/anchor', remoteCwd: '/home/operator/work', authority: 'a', runtimeId: 'r', instanceId: 'i' };
+  await ctx.bindings.set('session-bound', bound);
+  const proxy = installNativeSessionProxy(ctx, { bindings: ctx.bindings, resolveWorkspace: ctx.resolveWorkspace, transport: ctx.transport });
+  try {
+    await assert.rejects(ctx.sessionController.selectModel({ sessionId: 'session-bound', provider: 'deepinfra', model: 'XiaomiMiMo/MiMo-V2.6-Pro', reasoningEffort: 'xhigh' }),
+      { code: 'session/model-unavailable' }, 'the resident rejection propagates');
+    const errors = ctx.emitted['api-session/error'] ?? [];
+    assert.ok(errors.length >= 1, 'the failure is surfaced through the session-error channel');
+    assert.match(String(errors[0]), /selectModel/, 'the surfaced message names the failed operation');
+    assert.match(String(errors[0]), /does not support reasoning effort/, 'the surfaced message carries the resident reason');
+    // A successful selection surfaces nothing.
+    ctx.transport.call = async (binding, endpoint) => (endpoint === 'session/list' ? { items: [] } : {});
+    ctx.emitted['api-session/error'] = [];
+    await ctx.sessionController.selectModel({ sessionId: 'session-bound', provider: 'deepinfra', model: 'XiaomiMiMo/MiMo-V2.6-Pro' });
+    assert.equal((ctx.emitted['api-session/error'] ?? []).length, 0, 'successful selections stay silent');
+  } finally { await proxy.dispose(); }
+});
+
 // ── 5. Operator round 2: omlx credentials, auto-review, live sync ─────────────
 
 test('model sync writes credentials for EVERY provider, not just the first', async () => {

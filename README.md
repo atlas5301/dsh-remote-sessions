@@ -30,7 +30,7 @@ Then restart the profile's runtime and open **Settings → Remote Sessions** to 
 
 Requires DSH **0.2.0-rc.2 or later (0.2.x)** on both hosts and Node 22.15+. SSH must authenticate non-interactively (key or agent) to the remote machine with the same Unix user that owns the runtime directory.
 
-**Version 0.8.3 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
+**Version 0.8.4 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
 
 ## Automatic remote setup
 
@@ -129,6 +129,24 @@ The profile composes DSH base and the companion bundle. Normal base policies/plu
 - **Remote terminals**: the whole `terminalController` surface (environment, shells, create, follow, retain, write, resize, rename, close, list) forwards to the remote PTYs. Screen recovery, exclusive input attachments and retained terminals behave exactly as with a local session; input control is enforced by the remote controller.
 - Native model selection and merged model catalogs. **DSH's model selection also saves that runtime's default**, just as its ordinary API does. This plugin only forwards an explicit user model-selection operation; it does not automatically apply legacy machine model-pin fields.
 - Durable proxy bindings, restored metadata shells and reattachment after local-host restart, without local Agent creation or mutation replay.
+
+## Model selection on remote sessions
+
+Picking a model in the composer for a remote-bound session forwards
+`session/selectModel` to the resident — the remote session's selector reacts
+exactly as a local one does, and the selection persists in the remote journal
+(`model/selection`). Two asymmetries are worth knowing:
+
+- **Host-specific providers**: a provider whose `baseURL` points at a
+  loopback server (e.g. a local `omlx` on `127.0.0.1:8000`) is synced as
+  configuration, but the resident can only reach servers on ITS OWN host.
+  Selecting such a model for a remote session installs the selection and then
+  fails the model call itself — pick remote-reachable providers for remote
+  sessions.
+- **Failed selections are never silent**: a rejected remote selection (e.g. an
+  unsupported reasoning effort) propagates the resident's error AND is
+  surfaced through the native session-error channel. Third-party composer
+  seats that swallow rejections cannot hide it.
 
 ## Failure and compatibility boundaries
 
