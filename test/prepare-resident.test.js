@@ -1,0 +1,57 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import { join, resolve, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { promisify } from 'node:util';
+import { execFile } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+const run = promisify(execFile);
+const anchor = process.env.DSH_TEST_RUNTIME_ANCHOR;
+
+test('standalone host bundle resolves to backend entry through public DSH loader without client dependency', { skip: !anchor }, async t => {
+  const parent = await fs.realpath(tmpdir()), root = await fs.mkdtemp(join(parent, 'dsh-host-package-'));
+  t.after(async () => { assert.equal(await fs.realpath(root), root); assert.ok(root.startsWith(parent + '/dsh-host-package-')); await fs.rm(root, { recursive: true, force: true }); });
+  const source = fileURLToPath(new URL('..', import.meta.url)), modules = join(root, 'node_modules');
+  await fs.mkdir(modules); await fs.symlink(source, join(modules, 'dsh-remote-sessions'), 'dir');
+  await fs.writeFile(join(root, 'package.json'), JSON.stringify({ private: true, type: 'module', dependencies: { 'dsh-remote-sessions': 'file:' + source }, dsh: { profile: { bundles: ['dsh-remote-sessions'] } } }));
+  const require = createRequire(resolve(anchor));
+  const { loadProfileDirectory, composeEntries } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')).href);
+  const profile = loadProfileDirectory('fixture', root, resolve(anchor));
+  assert.deepEqual(profile.skippedBundles, []);
+  const entries = composeEntries([...profile.layers.map(layer => layer.patches), profile.patches]);
+  const entry = entries.find(value => value.id === 'remote-sessions'); assert.ok(entry);
+  const resolved = createRequire(join(root, 'package.json')).resolve('dsh-remote-sessions');
+  assert.equal(resolved, join(source, 'lib/native-host.js'));
+  assert.deepEqual(entry.config.workspaces, []); assert.deepEqual(entry.config.mirrorTargets, []);
+});
+
+test('offline preparation resolves the resident bundle through actual public DSH profile loader', { skip: !anchor }, async t => {
+  const parent = await fs.realpath(tmpdir());
+  const root = await fs.mkdtemp(join(parent, 'dsh-prep-'));
+  t.after(async () => { assert.equal(await fs.realpath(root), root); assert.ok(root.startsWith(parent + '/dsh-prep-')); await fs.rm(root, { recursive: true, force: true }); });
+  const home = join(root, 'home'), runtime = join(root, 'run');
+  await fs.mkdir(home, { mode: 0o700 }); await fs.mkdir(join(home, 'profiles'), { mode: 0o700 });
+  const tool = fileURLToPath(new URL('../tools/prepare-resident.mjs', import.meta.url));
+  const args = [tool, '--home', home, '--profile', 'resident-fixture', '--runtime-directory', runtime, '--node', process.execPath, '--cli', join(dirname(resolve(anchor)), 'lib/bin.js')];
+  const { stdout } = await run(process.execPath, args);
+  const receipt = JSON.parse(stdout); assert.equal(receipt.started, false);
+  assert.equal((await fs.stat(runtime)).mode & 0o777, 0o700);
+  assert.equal((await fs.stat(join(receipt.profile, 'package.json'))).mode & 0o777, 0o600);
+  const require = createRequire(resolve(anchor));
+  const { loadProfileDirectory, composeEntries } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')).href);
+  const profile = loadProfileDirectory('fixture', receipt.profile, resolve(anchor));
+  assert.deepEqual(profile.skippedBundles, []);
+  assert.equal(profile.layers.length, 2);
+  const entries = composeEntries([...profile.layers.map(l => l.patches), profile.patches]);
+  const companion = entries.find(e => e.id === 'remote-resident');
+  assert.ok(companion); assert.equal(companion.config.runtimeDirectory, runtime);
+  assert.ok(companion.name.startsWith('file:'));
+  await fs.access(fileURLToPath(companion.name));
+  assert.ok(entries.some(e => e.id === 'session-controller'));
+  assert.ok(!entries.some(e => ['webserver','web-runtime','headless-runner','acp','sdk-jsonrpc-server'].includes(e.id)));
+  const manifest = await fs.readFile(join(receipt.profile, 'package.json'), 'utf8');
+  await assert.rejects(run(process.execPath, args));
+  assert.equal(await fs.readFile(join(receipt.profile, 'package.json'), 'utf8'), manifest);
+});

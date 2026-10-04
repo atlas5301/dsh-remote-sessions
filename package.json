@@ -1,0 +1,88 @@
+{
+  "name": "dsh-remote-sessions",
+  "version": "0.8.3",
+  "private": true,
+  "description": "Standalone backend proxy for resident SSH agent sessions through unchanged native DSH UI; no dsh-remote dependency or core edits.",
+  "type": "module",
+  "main": "lib/native-host.js",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "exports": {
+    ".": "./lib/native-host.js",
+    "./client": "./lib/client.js",
+    "./companion": "./lib/companion.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/native-host.js",
+    "lib/native-transport.js",
+    "lib/native-mirror.js",
+    "lib/native-workspace.js",
+    "lib/native-observers.js",
+    "lib/index.js",
+    "lib/native-session-proxy.js",
+    "lib/native-bindings.js",
+    "lib/native-services.js",
+    "lib/client.js",
+    "lib/upload-relay.js",
+    "lib/authority.js",
+    "lib/protocol.js",
+    "lib/runtime-adapter.js",
+    "lib/companion.js",
+    "lib/companion-server.js",
+    "lib/session-broker.js",
+    "lib/machine-registry.js",
+    "lib/ssh-carrier.js",
+    "lib/remote-setup.js",
+    "lib/remote-web.js",
+    "lib/model-sync.js",
+    "lib/remote-workspaces.js",
+    "lib/selected-actions.js",
+    "lib/selected-sync.js",
+    "lib/transfer-actions.js",
+    "lib/selected-transfer.js",
+    "resident",
+    "tools/prepare-resident.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "IMPLEMENTATION.md",
+    "README.zh.md"
+  ],
+  "scripts": {
+    "test": "node --test test/resident-protocol.test.js test/session-broker.test.js test/host-resident.test.js test/upload-relay.test.js test/client-panel.test.js test/native-backend.test.js test/native-mirror.test.js test/remote-setup.test.js test/remote-workspaces.test.js test/selected-actions.test.js test/selected-sync.test.js test/selected-transfer.test.js test/transfer-actions.test.js test/behaviour-regressions.test.js",
+    "test:runtime": "node --test test/runtime-e2e.test.js test/runtime-services.test.js test/prepare-resident.test.js"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "~3.18.4",
+    "@deepseek-ai/dsh": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-connection": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-api-gateway": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-api-session-controller": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-storage-domain": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-scope": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-typert-protocol": ">=0.2.0-rc.2 <0.3.0",
+    "zod": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atlas5301/dsh-remote-sessions.git"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "dsh",
+    "ssh",
+    "remote-sessions",
+    "cordis"
+  ]
+}

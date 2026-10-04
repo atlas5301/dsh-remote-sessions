@@ -1,0 +1,165 @@
+#!/usr/bin/env node
+/**
+ * Prepare a render-only browser ESM from the already-built local frontend.
+ * This is static source slicing, not execution of the frontend or a React mock.
+ * Only test/react-only-runtime.js is written. No downloads or installs occur.
+ *
+ * Run: node tools/prepare-react-fixture.mjs [--check] [--typescript /local/typescript.js]
+ * --check verifies the generated file without writing it.
+ * Source sections are pinned by SHA-256: an upstream change requires review.
+ */
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+
+const sourcePath = fileURLToPath(new URL('../test/frontend-runtime.js', import.meta.url));
+const outputPath = fileURLToPath(new URL('../test/react-only-runtime.js', import.meta.url));
+const require = createRequire(import.meta.url);
+const args = process.argv.slice(2);
+let checkOnly = false;
+let parserPath;
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--check') checkOnly = true;
+  else if (args[i] === '--typescript') {
+    parserPath = args[++i];
+    assert(parserPath, '--typescript needs an existing local module path');
+  } else throw new Error(`Unknown argument: ${args[i]}`);
+}
+
+// Reuse installed tooling; the second candidate is the existing workspace copy.
+const parserCandidates = parserPath ? [parserPath] : [
+  'typescript',
+  fileURLToPath(new URL('../../audit/codex-pool/subs-gh/dsh-plugin-subscriptions-c5cc37fe7ac431dd3dad0821857573b5ac1e7d5b/node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib/typescript.js', import.meta.url)),
+];
+let ts;
+for (const candidate of parserCandidates) {
+  try { ts = require(candidate); break; } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') throw error;
+  }
+}
+assert(ts, 'No local TypeScript parser found; pass --typescript. Do not install dependencies.');
+
+const source = readFileSync(sourcePath, 'utf8');
+const parsed = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+assert.equal(parsed.parseDiagnostics.length, 0, 'Source syntax must parse cleanly');
+const statements = [...parsed.statements];
+function declarations(statement) {
+  if (ts.isVariableStatement(statement)) return statement.declarationList.declarations;
+  return statement.name ? [statement] : [];
+}
+function statementFor(name) {
+  const matches = statements.filter(s => declarations(s).some(d => d.name.getText(parsed) === name));
+  assert.equal(matches.length, 1, `Expected one top-level declaration of ${name}`);
+  return matches[0];
+}
+function section(first, last, expectedNames) {
+  const start = statementFor(first);
+  const end = statementFor(last);
+  const range = statements.slice(statements.indexOf(start), statements.indexOf(end) + 1);
+  assert.deepEqual(range.flatMap(s => declarations(s).map(d => d.name.getText(parsed))), expectedNames,
+    `Unexpected top-level content in ${first}..${last}`);
+  assert(range.every(s => ts.isFunctionDeclaration(s) || ts.isVariableStatement(s)), 'Unexpected side-effect statement');
+  return source.slice(start.getStart(parsed), end.end);
+}
+
+// Retain original namespace helpers and production library code verbatim.
+// Exclude JSX runtime (not requested), Cordis, Shiki, stores, and application boot.
+const clientStatement = statementFor('Df');
+assert(ts.isVariableStatement(clientStatement));
+const clientDeclarations = clientStatement.declarationList.declarations;
+assert.deepEqual(clientDeclarations.slice(0, 2).map(d => d.name.getText(parsed)), ['zf', 'Df']);
+const chunks = [
+  {
+    label: 'original ESM namespace helper',
+    code: statementFor('as').getText(parsed),
+    sha256: '7692a392930fd3c6cf1470180d47b875242bb6e9039a7eb52aa362afd0c98774',
+  },
+  {
+    label: 'React 18.3.1 production + original interop',
+    code: section('_o', 'Ef', ['_o', 'ka', 'be', 'n3', 'jf', 'r3', 'Sc', 'j', 'bf', 'Ef']),
+    sha256: 'addad5004aab91a308b8a8fdc56274813de1c584f8635906b79e23483391ee64',
+  },
+  {
+    label: 'scheduler + ReactDOM production + client entry',
+    code: section('ba', 'P4', ['ba', 'yt', 'Ea', 'Sa', 's3', 'Of', 'l3', 'Tf', 'a3', 'Nf', 'c3', 'N4', 'cn', 'Pf', 'Rf', 'Ni', 'u3', 'Af', 'P4']),
+    sha256: 'b29abd3bcf1a8414af693314d5fb57260bfffef41445bf5219a171716f02de4b',
+  },
+  {
+    label: 'original ReactDOM client namespace wrapper',
+    code: `const ${source.slice(clientDeclarations[0].getStart(parsed), clientDeclarations[1].end)};`,
+    sha256: '3630d76d1fb1cdf80929ae4216bff91fdc9eb9cd78a2e60773d6d39dc9f837be',
+  },
+];
+const sha256 = text => createHash('sha256').update(text).digest('hex');
+for (const chunk of chunks) assert.equal(sha256(chunk.code), chunk.sha256, `Unreviewed source change: ${chunk.label}`);
+const output = [
+  '// Generated by tools/prepare-react-fixture.mjs; render-only QA, not deployment.',
+  '// Source: test/frontend-runtime.js (locally available production bundle).',
+  '// Original React/scheduler MIT license notices are retained below.',
+  ...chunks.flatMap(chunk => [`// ${chunk.label}; SHA-256 ${chunk.sha256}`, chunk.code]),
+  'export const testRuntime = Object.freeze({ react: Ef, "react-dom": Rf, "react-dom/client": Df });',
+  '',
+].join('\n');
+
+// Resolve every identifier against ONLY the generated module, with no libraries.
+// Any unresolved name must be one of the actual reviewed browser/JS globals.
+const generated = ts.createSourceFile(outputPath, output, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+assert.equal(generated.parseDiagnostics.length, 0, 'Generated module must parse cleanly');
+const options = { allowJs: true, checkJs: true, noLib: true, noResolve: true, noEmit: true };
+const host = ts.createCompilerHost(options);
+host.getSourceFile = name => name === outputPath ? generated : undefined;
+host.writeFile = () => { throw new Error('Unexpected compiler write'); };
+const program = ts.createProgram([outputPath], options, host);
+const checker = program.getTypeChecker();
+const allowedGlobals = new Set([
+  'Array', 'Date', 'Error', 'JSON', 'MSApp', 'Map', 'Math', 'MessageChannel', 'Object',
+  'Promise', 'Reflect', 'Set', 'String', 'Symbol', 'WeakMap', 'WeakSet',
+  '__REACT_DEVTOOLS_GLOBAL_HOOK__', 'clearTimeout', 'console', 'document',
+  'encodeURIComponent', 'isNaN', 'navigator', 'performance', 'queueMicrotask',
+  'reportError', 'setImmediate', 'setTimeout', 'window',
+]);
+const externalGlobals = new Set();
+const forbiddenIdentifiers = new Set(['eval', 'Function', 'AsyncFunction', 'GeneratorFunction', 'require', 'fetch', 'XMLHttpRequest', 'WebSocket', 'Worker', 'WebAssembly']);
+function visit(node) {
+  assert(!ts.isImportDeclaration(node) && !ts.isImportEqualsDeclaration(node) && node.kind !== ts.SyntaxKind.ImportKeyword,
+    'The fixture must not import any other module');
+  assert(!ts.isWithStatement(node), 'Unexpected dynamic scope');
+  if (ts.isIdentifier(node)) {
+    assert(!forbiddenIdentifiers.has(node.text), `Unexpected runtime capability: ${node.text}`);
+    const parent = node.parent;
+    const propertyName = (ts.isPropertyAccessExpression(parent) && parent.name === node)
+      || ((ts.isPropertyAssignment(parent) || ts.isMethodDeclaration(parent)
+        || ts.isGetAccessorDeclaration(parent) || ts.isSetAccessorDeclaration(parent)) && parent.name === node);
+    const label = ts.isLabeledStatement(parent) || ts.isBreakStatement(parent) || ts.isContinueStatement(parent);
+    if (!propertyName && !label && !ts.isDeclarationName(node) && !checker.getSymbolAtLocation(node)) {
+      externalGlobals.add(node.text);
+      assert(allowedGlobals.has(node.text), `Unresolved dependency: ${node.text}`);
+    }
+  }
+  ts.forEachChild(node, visit);
+}
+visit(generated);
+assert(!/cordis|cosmokit|__DSH_BOOT__/i.test(output), 'Application runtime leaked into the fixture');
+assert.deepEqual([...externalGlobals].sort(), [...allowedGlobals].sort(), 'Reviewed external dependency set changed');
+const syntax = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: output, encoding: 'utf8' });
+assert.equal(syntax.status, 0, `Node syntax check failed: ${syntax.stderr || syntax.error || ''}`);
+
+let existing;
+try { existing = readFileSync(outputPath, 'utf8'); } catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
+if (checkOnly) assert.equal(existing, output, 'Fixture is missing or stale; regenerate it');
+else if (existing !== output) writeFileSync(outputPath, output, 'utf8');
+console.log(JSON.stringify({
+  action: checkOnly ? 'verified' : existing === output ? 'unchanged' : 'generated',
+  path: outputPath,
+  bytes: Buffer.byteLength(output),
+  sha256: sha256(output),
+  exports: { testRuntime: ['react', 'react-dom', 'react-dom/client'] },
+  staticSlices: chunks.map(({ label, sha256: hash, code }) => ({ label, sha256: hash, bytes: Buffer.byteLength(code) })),
+  externalGlobals: [...externalGlobals].sort(),
+  syntax: 'passed',
+}, null, 2));

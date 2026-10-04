@@ -1,0 +1,13 @@
+# Standalone backend only: existing native DSH frontend remains unchanged.
+# Bind an ordinary local workspace path to a target machine and remote directory
+# using workspaces: [{localPath: /local/anchor, target: NAME, remotePath: /remote/project}].
+# dsh-remote is NOT required. Optional mirrorTargets enables legacy compatibility.
+# No model/credential/memory sync or runtime deployment occurs at startup.
+# Existing persisted proxy sessions reconnect for observation, never prompt replay.
+- insert:
+    - id: remote-sessions
+      name: 'dsh-remote-sessions'
+      config:
+        machines: []
+        workspaces: []
+        mirrorTargets: []

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'unsafe-inline'; img-src file: data:; connect-src 'none'; font-src file:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Remote sessions — isolated rendered QA</title>
+  <style>
+    :root { color-scheme: dark; --dsw-alias-bg-base: #18181b; --dsw-alias-label-primary: #e4e4e7; --dsw-alias-brand-primary: #687ddd; }
+    * { box-sizing: border-box; }
+    html, body, #slot { width: 100%; height: 100%; margin: 0; }
+    body { background: #18181b; color: #e4e4e7; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    button, input, select, textarea { font: inherit; }
+    button:disabled { opacity: .45; cursor: default !important; }
+    select option, select optgroup { color: #e4e4e7; background: #27272a; }
+    #results { display: none; }
+  </style>
+  <script type="module" src="./resident-browser.js"></script>
+</head>
+<body><div id="slot"></div><pre id="results" aria-hidden="true"></pre></body>
+</html>
