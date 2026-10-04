@@ -30,7 +30,7 @@ Then restart the profile's runtime and open **Settings → Remote Sessions** to 
 
 Requires DSH **0.2.0-rc.2 or later (0.2.x)** on both hosts and Node 22.15+. SSH must authenticate non-interactively (key or agent) to the remote machine with the same Unix user that owns the runtime directory.
 
-**Version 0.8.4 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
+**Version 0.8.5 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
 
 ## Automatic remote setup
 
@@ -82,6 +82,18 @@ Manual YAML configuration still works for operators who prefer it:
 Use canonical absolute directories without symlink aliases. More-specific configured roots win. Machine/workspace writes from the settings tab go through the same validation (`machine-registry`) and persist into this configuration through DSH's settings service, so both views stay consistent. The local anchor is **not a synchronized mirror** and never hosts the remote agent. Relative `@file` completion is queried from the remote session. Uploaded files are transferred into remote attachment storage.
 
 Mappings apply to newly created sessions. Existing local sessions are not silently migrated to remote ownership. Persisted proxy bindings retain their exact machine authority, runtime UUID, process instance, session ID and directories even if configuration is later edited.
+
+### The remote web button: a bridge, not a separate instance
+
+The settings tab's *Web* button opens a **machine-scoped web bridge profile**
+(`rs-web-<machine>`) on the remote host: the shipped web UI composed over the
+**resident's session store**, attachment store and credential store, carrying
+the synced model catalog. Sessions, models and credentials are therefore the
+SAME on both sides — a session created in the bridge web UI appears in the
+local workspace (through list adoption), and every locally-created session
+appears in the bridge. A stale standalone `dsh web` on the machine is never
+reused for the bridge: ownership is verified per profile and port, and the
+bridge replaces it.
 
 ### Optional dsh-remote compatibility
 

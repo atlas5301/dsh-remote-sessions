@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote-sessions-resident",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "private": true,
   "type": "module",
   "description": "Browser-free resident composition for the dsh-remote-sessions plugin",

@@ -43,6 +43,7 @@ const { createNativeTransport } = await import('../lib/native-transport.js');
 const { machineIdentity } = await import('../lib/authority.js');
 const { installNativeSessionProxy } = await import('../lib/native-session-proxy.js');
 const { adoptableBindings } = await import('../lib/native-bindings.js');
+const { createRemoteWeb, webBridgeProfileName, webBridgePatchText } = await import('../lib/remote-web.js');
 hook.deregister();
 
 /** Minimal native-service graph for driving the real session proxy overlay:
@@ -744,6 +745,87 @@ test('the generated resident patch pins a resident-owned credential store', () =
   assert.ok(text.includes('- id: credentials'), 'the patch pins the credentials plugin');
   assert.ok(text.includes('"/home/operator/.dsh/rs-runtime/build-host/credentials.yaml"'),
     'the store lives in the resident-owned runtime directory, never the shared home');
+});
+
+// ── 8. A legacy standalone web instance is never mistaken for the bridge ─────
+
+test('a legacy bare-web announcement is never reused: the bridge replaces it', async () => {
+  const target = machine({ remoteCli: '/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js' });
+  const { exec, calls } = scriptedExec([
+    { match: /tail -5 .*web\.log/, stdout: 'dsh web: http://127.0.0.1:39871/?token=legacy-Tok_123', times: 1 },
+    { match: /curl -s .*39871/, stdout: 'ALIVE', times: 1 },                              // the old web IS alive…
+    { match: /pgrep -f/, stdout: '', times: 1 },                                          // …but NOT on the bridge profile
+    { match: /pkill/, code: 0, times: 1 },                                               // → killed, never reused
+    { match: /if \[ -x/, stdout: '/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js', times: 1 },
+    { match: /curl -s/, stdout: 'DEAD', times: 1 },
+    { match: /--dump-config/, stdout: '[]', times: 1 },
+    { match: /cat > '/, times: 1 },
+    { match: /setsid|nohup/, code: 0, times: 1 },
+    { match: /cat .*web\.log/, stdout: 'dsh web: http://127.0.0.1:39999/?token=bridge-Tok_456', times: 1 },
+  ]);
+  const remoteWeb = createRemoteWeb({ exec });
+  await assert.rejects(remoteWeb.open(target), error => ['WEB_FORWARD_FAILED', 'WEB_START_TIMEOUT'].includes(error.code));
+  const ordered = calls.map(call => call.script.split(' ')[0] + (call.script.includes('pgrep') ? ':pgrep' : call.script.includes('pkill') ? ':pkill' : call.script.includes('dump-config') ? ':dump' : call.script.includes('setsid') ? ':launch' : ''));
+  const pkillIndex = ordered.findIndex(tag => tag.endsWith(':pkill'));
+  const launchIndex = ordered.findIndex(tag => tag.endsWith(':launch'));
+  assert.ok(pkillIndex >= 0 && launchIndex > pkillIndex, 'the legacy instance is killed before the bridge boots');
+  assert.equal(ordered.findIndex(tag => tag.endsWith(':pgrep')) < pkillIndex, true, 'the bridge-ownership check precedes the kill');
+  await remoteWeb.dispose();
+});
+
+// ── 7. Operator round 4: the remote web UI must share the resident's sessions ──
+
+test('the web bridge profile shares the resident session store, not a parallel one', async () => {
+  const target = machine(); // runtimeDirectory /home/operator/.dsh/rs-runtime/build-host
+  const environment = { defaultModel: { provider: 'deepinfra', model: 'zai-org/GLM-5.3' }, pluginStates: [], modelProvidersSection: '- id: llm-pi-ai\n  name: "@deepseek-ai/dsh-llm-pi-ai"\n  config:\n    providers: {}\n' };
+  // Profile name is machine-scoped, like the resident profile.
+  assert.equal(webBridgeProfileName(target), 'rs-web-build-host');
+  const patch = webBridgePatchText(target, environment);
+  // The session store is THE resident's store: sessions created through the
+  // bridge web UI land where the resident (and therefore the local UI's
+  // adoption) can see them, and vice versa.
+  assert.ok(patch.includes('root: "/home/operator/.dsh/rs-runtime/build-host/sessions"'),
+    'the bridge pins the resident session store');
+  assert.ok(patch.includes('path: "/home/operator/.dsh/rs-runtime/build-host/credentials.yaml"'),
+    'the bridge reads the resident-owned credential store');
+  assert.ok(patch.includes('dshHome: "/home/operator/.dsh/rs-runtime/build-host"'),
+    'the bridge shares the resident attachment store');
+  assert.ok(patch.includes('llm-pi-ai'), 'the bridge composes the synced provider catalog');
+  // Its own writable state stays isolated from the resident's.
+  assert.ok(patch.includes('web-storages'), 'the bridge keeps its own JSON storage root');
+  assert.equal(patch.includes('- id: remote-resident'), false, 'the bridge never mounts the companion');
+});
+
+test('web open provisions the bridge profile before launching the web app on it', async () => {
+  const target = machine({ remoteCli: '/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js' });
+  const { exec, calls } = scriptedExec([
+    { match: /tail -5 .*web\.log/, stdout: '', times: 1 },                       // no prior announcement
+    { match: /pkill/, code: 0, times: 1 },
+    { match: /if \[ -x/, stdout: '/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js', times: 1 },
+    { match: /curl -s/, stdout: 'DEAD', times: 1 },                               // free port probe
+    { match: /--dump-config/, stdout: '[]', times: 1 },                            // create the bridge profile
+    { match: /cat > '/, times: 1 },                                               // write the bridge patch
+    { match: /setsid|nohup/, code: 0, times: 1 },                                 // launch the web app
+    { match: /cat .*web\.log/, stdout: 'dsh web: http://127.0.0.1:39871/?token=abc-DEF_123', times: 1 },
+  ]);
+  const remoteWeb = createRemoteWeb({ exec });
+  // The tunnel spawn will fail (no such host in the test env); the remote-side
+  // sequence must already be correct at that point.
+  await assert.rejects(remoteWeb.open(target), error => ['WEB_FORWARD_FAILED', 'WEB_START_TIMEOUT', 'LOCAL_PORT_UNAVAILABLE'].includes(error.code));
+  const scripts = calls.map(call => call.script);
+  const create = scripts.find(text => /--dump-config/.test(text));
+  assert.ok(create, 'the bridge profile is created from the web template');
+  assert.ok(/--profile 'rs-web-build-host'/.test(create) && create.includes('--from-default-profile web'),
+    'creation initializes the machine-scoped bridge from the shipped web template');
+  const patchWrite = calls.find(call => /cat > '/.test(call.script));
+  assert.ok(patchWrite.script.includes("profiles/rs-web-build-host/cordis.patch.yml") || patchWrite.script.includes('profiles/' + 'rs-web-build-host' + '/cordis.patch.yml'), 'the bridge patch is written into its profile');
+  assert.ok(String(patchWrite.input ?? '').includes('/rs-runtime/build-host/sessions'), 'the patch pins the resident session store');
+  const launch = calls.find(call => /setsid|nohup/.test(call.script));
+  assert.ok(/--profile .*rs-web-build-host/.test(launch.script), 'the web app boots ON the bridge profile');
+  assert.equal(launch.script.includes('--from-default-profile'), false, 'an existing bridge never re-initializes');
+  assert.equal(/pkill -f 'lib\/bin\.js(\.*)? ?web'/.test(scripts.find(text => /pkill/.test(text))), false,
+    'the stale-kill pattern matches the bridge launch line, not only the legacy bare-web form');
+  await remoteWeb.dispose();
 });
 
 // ── 6. Operator round 3: remote model selection must never fail silently ────
