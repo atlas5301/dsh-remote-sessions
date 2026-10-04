@@ -1,7 +1,6 @@
 {
   "name": "dsh-remote-sessions",
   "version": "0.8.3",
-  "private": true,
   "description": "Standalone backend proxy for resident SSH agent sessions through unchanged native DSH UI; no dsh-remote dependency or core edits.",
   "type": "module",
   "main": "lib/native-host.js",
@@ -56,7 +55,8 @@
     "cordis.patch.yml",
     "README.md",
     "IMPLEMENTATION.md",
-    "README.zh.md"
+    "README.zh.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "node --test test/resident-protocol.test.js test/session-broker.test.js test/host-resident.test.js test/upload-relay.test.js test/client-panel.test.js test/native-backend.test.js test/native-mirror.test.js test/remote-setup.test.js test/remote-workspaces.test.js test/selected-actions.test.js test/selected-sync.test.js test/selected-transfer.test.js test/transfer-actions.test.js test/behaviour-regressions.test.js",
@@ -84,5 +84,11 @@
     "ssh",
     "remote-sessions",
     "cordis"
-  ]
+  ],
+  "license": "MIT",
+  "author": "atlas5301",
+  "bugs": {
+    "url": "https://github.com/atlas5301/dsh-remote-sessions/issues"
+  },
+  "homepage": "https://github.com/atlas5301/dsh-remote-sessions#readme"
 }

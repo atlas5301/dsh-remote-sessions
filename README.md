@@ -14,6 +14,22 @@ Independently supervised remote DSH + companion
 Remote AgentLoop, models, tools, files and persistence
 ```
 
+## Installation
+
+Install into a DSH profile (the plugin is a backend-only package; the native UI stays unchanged):
+
+```sh
+dsh plugin --profile web add dsh-remote-sessions     # or: --profile desktop
+```
+
+Then restart the profile's runtime and open **Settings → Remote Sessions** to add a machine. The command above is the official channel; the alternatives below also work:
+
+- **npm**: `npm install dsh-remote-sessions` inside the profile, or `dsh plugin --profile web add npm:dsh-remote-sessions@0.8.3` to pin a version.
+- **GitHub**: `dsh plugin --profile web add github:atlas5301/dsh-remote-sessions` (the [releases](https://github.com/atlas5301/dsh-remote-sessions/releases) tag each published version).
+- **Plugin hub**: search "dsh-remote-sessions" in the [DSH Plugin Hub](https://dsh-plugin.org) / Settings → Plugin Hub and install from the catalog.
+
+Requires DSH **0.2.0-rc.2 or later (0.2.x)** on both hosts and Node 22.15+. SSH must authenticate non-interactively (key or agent) to the remote machine with the same Unix user that owns the runtime directory.
+
 **Version 0.8.3 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
 
 ## Automatic remote setup

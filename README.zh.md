@@ -14,6 +14,22 @@
 远程 AgentLoop、模型、工具、文件与持久化
 ```
 
+## 安装
+
+安装到一个 DSH profile 中（本插件是纯后端包；原生 UI 保持不变）：
+
+```sh
+dsh plugin --profile web add dsh-remote-sessions     # 或：--profile desktop
+```
+
+然后重启该 profile 的运行时，打开 **Settings → Remote Sessions** 添加机器。以上是官方安装渠道；下面的替代方式同样可用：
+
+- **npm**：在 profile 中 `npm install dsh-remote-sessions`，或用 `dsh plugin --profile web add npm:dsh-remote-sessions@0.8.3` 固定版本。
+- **GitHub**：`dsh plugin --profile web add github:atlas5301/dsh-remote-sessions`（[releases](https://github.com/atlas5301/dsh-remote-sessions/releases) 中对每个已发布版本打了标签）。
+- **插件市场**：在 [DSH Plugin Hub](https://dsh-plugin.org) / Settings → Plugin Hub 中搜索 "dsh-remote-sessions"，从目录安装。
+
+要求两端均为 DSH **0.2.0-rc.2 及以上（0.2.x）**，Node 22.15+。SSH 必须能非交互认证（密钥或 agent）到远程机器，且使用与运行时目录属主相同的 Unix 用户。
+
 **0.8.3 版本状态：** 源码已实现，已针对已安装的 DSH **0.2.0-rc.2** 用隔离的真实运行时完成测试，并已在一台真实远程主机上通过严格 SSH 完成端到端验证（部署、模型/凭据同步、会话代理、文件树、终端、升级与重启流程）。
 
 ## 自动远程部署
