@@ -749,6 +749,64 @@ test('the generated resident patch pins a resident-owned credential store', () =
     'the store lives in the resident-owned runtime directory, never the shared home');
 });
 
+// ── 11. Operator round 7: a bridge boot must never lose the session store ────
+
+test('web open verifies the bridge patch and repairs a clobbered store pin before launching', async () => {
+  const target = machine({ remoteCli: '/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js' });
+  const patchPath = "profiles/rs-web-build-host/cordis.patch.yml";
+  const script = [
+    { match: /tail -5 .*web\.log/, stdout: '', times: 1 },
+    { match: /pkill/, code: 0, times: 1 },
+    { match: /if \[ -x/, stdout: '/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js', times: 1 },
+    { match: /curl -s/, stdout: 'DEAD', times: 1 },
+    // The provision writes the patch…
+    { match: /--dump-config|cat > '/, reply: (text, input) => {
+        if (/--dump-config/.test(text)) return { code: 0, stdout: '[]' };
+        if (input === undefined || !String(input).includes('/rs-runtime/build-host/sessions')) {
+          throw new Error('provision wrote a patch WITHOUT the session pin');
+        }
+        return { code: 0, stdout: '' };
+      }, times: 2 },
+    // …the launch is GATED on the written content: grep the pin in the patch.
+    { match: /grep -/, reply: (text) => ({ code: /rs-runtime\/build-host\/sessions/.test(text) ? 0 : 1, stdout: '' }), times: 2 },
+    { match: /setsid|nohup/, code: 0, times: 1 },
+    { match: /cat .*web\.log/, stdout: 'dsh web: http://127.0.0.1:39999/?token=bridge-Tok_456', times: 1 },
+  ];
+  const { exec, calls } = scriptedExec(script);
+  const remoteWeb = createRemoteWeb({ exec });
+  await assert.rejects(remoteWeb.open(target), error => ['WEB_FORWARD_FAILED', 'WEB_START_TIMEOUT'].includes(error.code));
+  const launch = calls.find(call => /setsid|nohup/.test(call.script));
+  assert.ok(launch, 'the launch ran');
+  // The launch must have been preceded by a content check of the bridge patch.
+  const grep = calls.filter(call => /grep -/.test(call.script));
+  assert.ok(grep.length >= 1, 'the bridge patch content was verified before launch');
+  assert.ok(grep.every(call => call.script.includes('/rs-runtime/build-host/sessions')), 'the verification greps for the session-store pin');
+  await remoteWeb.dispose();
+});
+
+test('web open repairs a previously clobbered patch ([]) and then launches', async () => {
+  const target = machine({ remoteCli: '/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js' });
+  let patchContent = ''; // simulates the remote file
+  const script = [
+    { match: /tail -5 .*web\.log/, stdout: '', times: 1 },
+    { match: /pkill/, code: 0, times: 1 },
+    { match: /if \[ -x/, stdout: '/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js', times: 1 },
+    { match: /curl -s/, stdout: 'DEAD', times: 1 },
+    { match: /--dump-config/, reply: () => { patchContent = '[]\n'; return { code: 0, stdout: '' }; }, times: 1 },
+    // The FIRST verify fails (clobbered content) → the repair rewrites the patch.
+    { match: /grep -/, reply: () => ({ code: patchContent.includes('/rs-runtime/build-host/sessions') ? 0 : 1 }), times: 1 },
+    { match: /cat > '/, reply: (text, input) => { patchContent = String(input); return { code: 0, stdout: '' }; }, times: 1 },
+    { match: /grep -/, reply: () => ({ code: patchContent.includes('/rs-runtime/build-host/sessions') ? 0 : 1 }), times: 1 },
+    { match: /setsid|nohup/, code: 0, times: 1 },
+    { match: /cat .*web\.log/, stdout: 'dsh web: http://127.0.0.1:39999/?token=bridge-Tok_789', times: 1 },
+  ];
+  const { exec } = scriptedExec(script);
+  const remoteWeb = createRemoteWeb({ exec });
+  await assert.rejects(remoteWeb.open(target), error => ['WEB_FORWARD_FAILED', 'WEB_START_TIMEOUT'].includes(error.code));
+  assert.ok(patchContent.includes('/rs-runtime/build-host/sessions'), 'the clobbered patch was repaired before launch');
+  await remoteWeb.dispose();
+});
+
 // ── 10. Operator round 6: workspace membership survives a local restart ──────
 
 test('restored bindings re-register their workspace path after a local restart', async () => {
@@ -851,6 +909,7 @@ test('a legacy bare-web announcement is never reused: the bridge replaces it', a
     { match: /curl -s/, stdout: 'DEAD', times: 1 },
     { match: /--dump-config/, stdout: '[]', times: 1 },
     { match: /cat > '/, times: 1 },
+    { match: /grep -q/, code: 0, times: 1 },
     { match: /setsid|nohup/, code: 0, times: 1 },
     { match: /cat .*web\.log/, stdout: 'dsh web: http://127.0.0.1:39999/?token=bridge-Tok_456', times: 1 },
   ]);
@@ -896,6 +955,7 @@ test('web open provisions the bridge profile before launching the web app on it'
     { match: /curl -s/, stdout: 'DEAD', times: 1 },                               // free port probe
     { match: /--dump-config/, stdout: '[]', times: 1 },                            // create the bridge profile
     { match: /cat > '/, times: 1 },                                               // write the bridge patch
+    { match: /grep -q/, code: 0, times: 1 },                                      // content gate passes
     { match: /setsid|nohup/, code: 0, times: 1 },                                 // launch the web app
     { match: /cat .*web\.log/, stdout: 'dsh web: http://127.0.0.1:39871/?token=abc-DEF_123', times: 1 },
   ]);
