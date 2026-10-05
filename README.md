@@ -30,7 +30,7 @@ Then restart the profile's runtime and open **Settings → Remote Sessions** to 
 
 Requires DSH **0.2.0-rc.2 or later (0.2.x)** on both hosts and Node 22.15+. SSH must authenticate non-interactively (key or agent) to the remote machine with the same Unix user that owns the runtime directory.
 
-**Version 0.8.7 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
+**Version 0.8.8 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
 
 ## Automatic remote setup
 
@@ -93,7 +93,12 @@ SAME on both sides — a session created in the bridge web UI appears in the
 local workspace (through list adoption), and every locally-created session
 appears in the bridge. A stale standalone `dsh web` on the machine is never
 reused for the bridge: ownership is verified per profile and port, and the
-bridge replaces it.
+bridge replaces it. The launch is **gated on the patch content**: the
+machine's session-store pin must be present in the written profile patch
+(a clobbered patch is repaired once, otherwise the open fails closed) — a
+bridge booted on the wrong store would strand every session created through
+it. The web-open route composes the bridge with the same synced model
+environment as the models/sync route.
 
 ### Optional dsh-remote compatibility
 
