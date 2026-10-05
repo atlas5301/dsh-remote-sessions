@@ -126,6 +126,8 @@ function proxyContext({ mappings, remoteSessions }) {
           throw Object.assign(new Error('REMOTE_BINDING_CONFLICT'), { code: 'REMOTE_BINDING_CONFLICT' });
         rows.set(id, Object.freeze({ ...value }));
       },
+      put: async (id, value) => rows.set(id, Object.freeze({ ...value })),
+      delete: id => rows.delete(id),
       close: () => {},
     },
     waterfall: async () => { throw new Error('unused'); },
@@ -747,6 +749,49 @@ test('the generated resident patch pins a resident-owned credential store', () =
     'the store lives in the resident-owned runtime directory, never the shared home');
 });
 
+// ── 9. Operator round 5: previously-created sessions must stay visible ──────
+
+test('a stale-instance binding still lists its session after a resident restart (full proxy path)', async () => {
+  // The exact live failure: every binding went "offline" after a restart
+  // because adoption wrote through the immutable set and conflicted.
+  const ctx = proxyContext({
+    mappings: [{ localPath: '/anchor', target: 'build-host', remotePath: '/home/operator/work' }],
+    remoteSessions: [{ sessionId: 'session-old', cwd: '/home/operator/work', updatedAt: 5, title: 'previous work', agentAvailable: true, running: false, blank: false }],
+  });
+  const stale = { sessionId: 'session-old', remoteSessionId: 'session-old', target: 'build-host',
+    cwd: '/anchor', remoteCwd: '/home/operator/work', authority: 'a', runtimeId: 'r', instanceId: 'stale-instance' };
+  await ctx.bindings.set('session-old', stale);
+  const proxy = installNativeSessionProxy(ctx, { bindings: ctx.bindings, resolveWorkspace: ctx.resolveWorkspace, transport: ctx.transport });
+  try {
+    const listing = await ctx.sessionController.list({});
+    const row = listing.items.find(item => item.sessionId === 'session-old');
+    assert.ok(row, 'the previously-created session stays listed');
+    assert.equal(row.agentAvailable, true, 'the REAL remote row is served, not an offline placeholder');
+    assert.equal(row.title, 'previous work');
+  } finally { await proxy.dispose(); }
+});
+
+test('a binding whose remote session is confirmed gone is unbound, not a permanent ghost', async () => {
+  const ctx = proxyContext({
+    mappings: [{ localPath: '/anchor', target: 'build-host', remotePath: '/home/operator/work' }],
+    remoteSessions: [{ sessionId: 'session-live', cwd: '/home/operator/work', updatedAt: 3 }],
+  });
+  const live = { sessionId: 'session-live', remoteSessionId: 'session-live', target: 'build-host',
+    cwd: '/anchor', remoteCwd: '/home/operator/work', authority: 'a', runtimeId: 'r', instanceId: 'i' };
+  const orphan = { sessionId: 'session-orphan', remoteSessionId: 'session-orphan', target: 'build-host',
+    cwd: '/anchor', remoteCwd: '/home/operator/work', authority: 'a', runtimeId: 'r', instanceId: 'i' };
+  await ctx.bindings.set('session-live', live);
+  await ctx.bindings.set('session-orphan', orphan);
+  const proxy = installNativeSessionProxy(ctx, { bindings: ctx.bindings, resolveWorkspace: ctx.resolveWorkspace, transport: ctx.transport });
+  try {
+    const listing = await ctx.sessionController.list({});
+    assert.ok(listing.items.some(item => item.sessionId === 'session-live'), 'live sessions stay');
+    assert.equal(listing.items.some(item => item.sessionId === 'session-orphan'), false,
+      'a confirmed-absent remote session disappears from the list');
+    assert.equal(ctx.bindings.has('session-orphan'), false, 'the orphaned binding is removed');
+  } finally { await proxy.dispose(); }
+});
+
 // ── 8. A legacy standalone web instance is never mistaken for the bridge ─────
 
 test('a legacy bare-web announcement is never reused: the bridge replaces it', async () => {
@@ -1042,24 +1087,25 @@ test('transport rebinds a persisted session after a resident restart when the re
   await transport.dispose(); await strict.dispose();
 });
 
-test('durable bindings adopt a new resident instance only for surviving sessions', () => {
+test('durable bindings adopt a new resident instance only for surviving sessions', async () => {
   const rows = new Map();
-  const bindings = {
+  // The REAL store's set() forbids EVERY field change including instanceId;
+  // adoption must therefore write through the low-level put, never set().
+  const bindings = adoptableBindings({
     get size() { return rows.size; }, has: id => rows.has(id), get: id => rows.get(id),
     *values() { for (const [, value] of rows.entries()) yield value; },
-    async set(id, value) { rows.set(id, Object.freeze({ ...value })); },
-    adopt: null, close: () => {},
-  };
-  bindings.adopt = adoptableBindings(bindings).adopt;
+    async put(id, value) { rows.set(id, Object.freeze({ ...value })); },
+    async set() { throw Object.assign(new Error('set is immutable'), { code: 'REMOTE_BINDING_CONFLICT' }); },
+    close: () => {},
+  });
   const previous = { sessionId: 'session-1', remoteSessionId: 'session-1', target: 'build-host',
     cwd: '/anchor', remoteCwd: '/work', authority: 'a', runtimeId: 'r', instanceId: 'old' };
-  return bindings.set('session-1', previous).then(async () => {
-    // Every field but the instance must stay pinned.
-    await bindings.adopt('session-1', { ...previous, instanceId: 'new' });
-    assert.equal(rows.get('session-1').instanceId, 'new');
-    await assert.rejects(bindings.adopt('session-1', { ...previous, remoteSessionId: 'session-2', instanceId: 'newer' }), /REMOTE_BINDING_CONFLICT/);
-    await assert.rejects(bindings.adopt('session-missing', { ...previous, sessionId: 'session-missing', instanceId: 'x' }), /UNKNOWN_BINDING/);
-  });
+  await bindings.put('session-1', previous);
+  // Every field but the instance must stay pinned.
+  await bindings.adopt('session-1', { ...previous, instanceId: 'new' });
+  assert.equal(rows.get('session-1').instanceId, 'new');
+  await assert.rejects(bindings.adopt('session-1', { ...previous, remoteSessionId: 'session-2', instanceId: 'newer' }), /REMOTE_BINDING_CONFLICT/);
+  await assert.rejects(bindings.adopt('session-missing', { ...previous, sessionId: 'session-missing', instanceId: 'x' }), /UNKNOWN_BINDING/);
 });
 
 test('listing adopts remote-created sessions of mapped workspaces into the local interface', async () => {
