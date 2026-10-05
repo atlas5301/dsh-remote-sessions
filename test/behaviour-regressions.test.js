@@ -749,6 +749,64 @@ test('the generated resident patch pins a resident-owned credential store', () =
     'the store lives in the resident-owned runtime directory, never the shared home');
 });
 
+// ── 13. Operator round 9: symlinked remote roots adopt canonical cwds ──────
+
+test('a session created through a symlinked project root is adopted into its workspace', async () => {
+  // The live case: the mapping spells the operator-visible root
+  // (/home/ubuntu/mygo), the project is a symlink into backup storage, and
+  // sessions created through the remote web record the CANONICAL cwd
+  // (/home/ubuntu/pub_storage/home-relocated/mygo). Adoption must accept
+  // both spellings as the same directory.
+  const ctx = proxyContext({
+    mappings: [{ localPath: '/anchor', target: 'build-host', remotePath: '/home/ubuntu/mygo' }],
+    remoteSessions: [
+      { sessionId: 'session-direct', cwd: '/home/ubuntu/mygo', updatedAt: 2 },
+      { sessionId: 'session-canonical', cwd: '/home/ubuntu/pub_storage/home-relocated/mygo', updatedAt: 3, title: 'Reconstructing world land-water map from memory' },
+    ],
+  });
+  ctx.resolveWorkspace.remoteAliases = new Map([['/home/ubuntu/mygo', '/home/ubuntu/pub_storage/home-relocated/mygo']]);
+  const bound = { sessionId: 'session-direct', remoteSessionId: 'session-direct', target: 'build-host',
+    cwd: '/anchor', remoteCwd: '/home/ubuntu/mygo', authority: 'a', runtimeId: 'r', instanceId: 'i' };
+  await ctx.bindings.set('session-direct', bound);
+  const proxy = installNativeSessionProxy(ctx, { bindings: ctx.bindings, resolveWorkspace: ctx.resolveWorkspace, transport: ctx.transport });
+  try {
+    const listing = await ctx.sessionController.list({});
+    const ids = listing.items.map(item => item.sessionId);
+    assert.ok(ids.includes('session-canonical'), 'the canonical-cwd session is adopted into the mapped workspace');
+    const adopted = ctx.bindings.get('session-canonical');
+    assert.equal(adopted.cwd, '/anchor', 'it anchors to the mapped local workspace');
+    assert.equal(adopted.remoteCwd, '/home/ubuntu/pub_storage/home-relocated/mygo');
+    assert.ok(ctx.attached.includes('session-canonical'), 'it joins the local workspace');
+  } finally { await proxy.dispose(); }
+});
+
+test('install resolves each mapping remote root to its canonical form over SSH', async () => {
+  const anchor = "/** The machine-scoped web bridge profile";
+  // import the host install and drive the alias resolution with a scripted exec.
+  const { installNativeHost } = await import('../lib/native-host.js');
+  const { connectSsh: _c } = { connectSsh: null };
+  // Minimal scripted exec answering realpath for the mapped root.
+  const calls = [];
+  const exec = async (machine, script) => {
+    calls.push(script);
+    if (/realpath/.test(script)) return { code: 0, stdout: '/home/ubuntu/pub_storage/home-relocated/mygo\n' };
+    return { code: 0, stdout: '' };
+  };
+  // A stub ctx providing the surfaces installNativeHost touches before the alias step.
+  const resolver = { snapshot: () => [{ localPath: '/anchor', target: 'build-host', remotePath: '/home/ubuntu/mygo' }], remoteAliases: new Map() };
+  const recorded = {};
+  const installModule = await import('../lib/native-host.js');
+  const aliases = installModule.__test_remoteAliases ? installModule.__test_remoteAliases : null;
+  // Drive the exported helper directly.
+  const { remoteRootAliases } = await import('../lib/native-host.js');
+  const machine = normalizeMachine({ name: 'build-host', ssh: ['operator@build-host'], remoteNode: '/usr/bin/node',
+    socketPath: '/home/operator/.dsh/rs-runtime/build-host/agent.sock', remoteCwd: '/home/operator/work' });
+  const map = await remoteRootAliases({ machines: [machine], exec }, resolver.snapshot());
+  assert.deepEqual([...map.entries()], [['/home/ubuntu/mygo', '/home/ubuntu/pub_storage/home-relocated/mygo']],
+    'the alias maps the operator spelling to the canonical backup-storage path');
+  assert.ok(calls.some(script => /realpath/.test(script) && /mygo/.test(script)), 'the resolution ran over SSH');
+});
+
 // ── 12. Operator round 8: membership rebinds retry until VERIFIED ────────────
 
 test('a failed membership rebind retries on the next list until the session is visible', async () => {

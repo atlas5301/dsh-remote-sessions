@@ -30,7 +30,7 @@ Then restart the profile's runtime and open **Settings → Remote Sessions** to 
 
 Requires DSH **0.2.0-rc.2 or later (0.2.x)** on both hosts and Node 22.15+. SSH must authenticate non-interactively (key or agent) to the remote machine with the same Unix user that owns the runtime directory.
 
-**Version 0.8.9 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
+**Version 0.8.10 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
 
 ## Automatic remote setup
 
@@ -79,7 +79,7 @@ Manual YAML configuration still works for operators who prefer it:
         remotePath: /srv/project
 ```
 
-Use canonical absolute directories without symlink aliases. More-specific configured roots win. Machine/workspace writes from the settings tab go through the same validation (`machine-registry`) and persist into this configuration through DSH's settings service, so both views stay consistent. The local anchor is **not a synchronized mirror** and never hosts the remote agent. Relative `@file` completion is queried from the remote session. Uploaded files are transferred into remote attachment storage.
+Use canonical absolute directories without symlink aliases. More-specific configured roots win. If a mapped remote root is a symlink (e.g. into backup storage), sessions created through the remote web record the *canonical* working directory; the backend resolves each mapping's remote root to its canonical form at startup and treats both spellings as the same directory, so such sessions still adopt into the mapped workspace. Machine/workspace writes from the settings tab go through the same validation (`machine-registry`) and persist into this configuration through DSH's settings service, so both views stay consistent. The local anchor is **not a synchronized mirror** and never hosts the remote agent. Relative `@file` completion is queried from the remote session. Uploaded files are transferred into remote attachment storage.
 
 Mappings apply to newly created sessions. Existing local sessions are not silently migrated to remote ownership. Persisted proxy bindings retain their exact machine authority, runtime UUID, process instance, session ID and directories even if configuration is later edited.
 
