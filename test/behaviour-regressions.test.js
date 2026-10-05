@@ -749,6 +749,52 @@ test('the generated resident patch pins a resident-owned credential store', () =
     'the store lives in the resident-owned runtime directory, never the shared home');
 });
 
+// ── 10. Operator round 6: workspace membership survives a local restart ──────
+
+test('restored bindings re-register their workspace path after a local restart', async () => {
+  // Model the REAL registry semantics: the in-memory session-path index is
+  // rebuilt at startup from the LOCAL store (remote shells have no local
+  // journal), and attachSession only registers the path for NEW members —
+  // so after every restart the workspace getter filtered ALL remote-bound
+  // sessions out (operator-reported: empty workspace lists).
+  const stored = new Map([['w', { path: '/anchor', sessionIds: ['session-restored'] }]]);
+  const pathIndex = new Map(); // the in-memory sessionPaths, empty after restart
+  const entity = {
+    get path() { return '/anchor'; },
+    get sessionIds() { return (stored.get('w')?.sessionIds ?? []).filter(id => pathIndex.get(id) === '/anchor'); },
+    async attachSession(id) {
+      if ((stored.get('w')?.sessionIds ?? []).includes(id)) return; // existing member: no re-registration
+      pathIndex.set(id, '/anchor');
+      stored.get('w').sessionIds = [id, ...stored.get('w').sessionIds];
+    },
+    async detachSession(id) { stored.get('w').sessionIds = stored.get('w').sessionIds.filter(x => x !== id); },
+  };
+  const ctx = proxyContext({
+    mappings: [{ localPath: '/anchor', target: 'build-host', remotePath: '/home/operator/work' }],
+    remoteSessions: [{ sessionId: 'session-restored', cwd: '/home/operator/work', updatedAt: 2 }],
+  });
+  ctx.workspaceRegistry = {
+    resolveByPath: async path => (path === '/anchor' ? entity : null),
+    attachSession: () => { throw new Error('registry-level attach is not the entity'); },
+  };
+  const binding = { sessionId: 'session-restored', remoteSessionId: 'session-restored', target: 'build-host',
+    cwd: '/anchor', remoteCwd: '/home/operator/work', authority: 'a', runtimeId: 'r', instanceId: 'i' };
+  await ctx.bindings.set('session-restored', binding);
+  // The stored membership EXISTS (created before the restart) but the index is empty.
+  assert.deepEqual(entity.sessionIds, [], 'precondition: the restart emptied the index');
+  const proxy = installNativeSessionProxy(ctx, { bindings: ctx.bindings, resolveWorkspace: ctx.resolveWorkspace, transport: ctx.transport });
+  try {
+    // The rebind is deferred to the first list (writes inside the boot
+    // transaction hang); after one list round it must have settled.
+    await ctx.sessionController.list({});
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.deepEqual(entity.sessionIds, ['session-restored'],
+      'the restored session re-registers its workspace path and stays visible in the workspace');
+    const listing = await ctx.sessionController.list({});
+    assert.ok(listing.items.some(item => item.sessionId === 'session-restored'), 'the session lists');
+  } finally { await proxy.dispose(); }
+});
+
 // ── 9. Operator round 5: previously-created sessions must stay visible ──────
 
 test('a stale-instance binding still lists its session after a resident restart (full proxy path)', async () => {

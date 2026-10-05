@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote-sessions",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "description": "Standalone backend proxy for resident SSH agent sessions through unchanged native DSH UI; no dsh-remote dependency or core edits.",
   "type": "module",
   "main": "lib/native-host.js",

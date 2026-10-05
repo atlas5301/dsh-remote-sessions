@@ -30,7 +30,7 @@ Then restart the profile's runtime and open **Settings → Remote Sessions** to 
 
 Requires DSH **0.2.0-rc.2 or later (0.2.x)** on both hosts and Node 22.15+. SSH must authenticate non-interactively (key or agent) to the remote machine with the same Unix user that owns the runtime directory.
 
-**Version 0.8.6 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
+**Version 0.8.7 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
 
 ## Automatic remote setup
 
@@ -165,6 +165,7 @@ exactly as a local one does, and the selection persists in the remote journal
 - Closing the local UI, losing SSH or exiting the local host does not cancel remote work. Only explicit cancellation does. Remote survival requires its resident process and external resources to remain alive.
 - Lost mutation acknowledgments are reported as unknown outcomes. Inspect the authoritative remote history before resubmitting. There is no automatic prompt replay or exactly-once guarantee.
 - A remote process restart changes its instance ID while the session store persists. The transport adopts the new instance only after verifying the bound remote session survived (adoption writes through the binding store's low-level row write — the immutable `set()` refuses instance changes); a runtime-identity or authority change still fails closed. An explicit upgrade performs the same guarded restart after verifying no active work.
+- Remote-bound sessions keep no local journal, and the native workspace registry rebuilds its membership index from the LOCAL store at startup. After every local restart the backend therefore re-registers each restored session's workspace membership on the first list (a detach+attach cycle, deferred out of the boot transaction) — without it the workspace lists appear empty even though the sessions exist on the remote.
 - The remote store is authoritative for the session list: a bound session that is CONFIRMED absent from an unfiltered remote list (a failed create that had reserved its binding, or a session deleted on the remote side) is unbound and disappears from the local list instead of haunting it as an offline ghost.
 - Automatic setup only creates or starts: it never stops, deletes or replaces a running resident. Upgrades stop only the PID recorded in the runtime directory and refuse when remote work is active or unverifiable. A serving socket without a recorded PID (`RESIDENT_UNSUPERVISED`) belongs to an operator-supervised runtime and is never touched.
 - Local draft retention is whatever native DSH provides; this backend adds no browser storage or replacement optimistic-message logic.
