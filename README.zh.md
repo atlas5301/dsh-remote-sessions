@@ -1,6 +1,6 @@
 # dsh-remote-sessions — 独立的原生会话后端
 
-[English](README.md) | 中文
+[English](README.md) | 中文 | [npm](https://www.npmjs.com/package/dsh-remote-sessions)
 
 通过**完全不变的现有 DSH 工作区、会话、输入框、审批与历史界面**来运行远程 DSH 智能体。本包没有客户端入口、自定义聊天面板、远程 Web 应用、浏览器依赖，也不依赖 `dsh-remote`。
 
@@ -16,7 +16,7 @@
 
 ## 安装
 
-安装到一个 DSH profile 中（本插件是纯后端包；原生 UI 保持不变）：
+安装到一个 DSH profile 中（本插件是纯后端包；原生 UI 保持不变；包已发布为 [npm 上的 `dsh-remote-sessions`](https://www.npmjs.com/package/dsh-remote-sessions)）：
 
 ```sh
 dsh plugin --profile web add dsh-remote-sessions     # 或：--profile desktop

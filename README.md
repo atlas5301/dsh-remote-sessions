@@ -1,6 +1,6 @@
 # dsh-remote-sessions — standalone native-session backend
 
-English | [中文](README.zh.md)
+English | [中文](README.zh.md) | [npm](https://www.npmjs.com/package/dsh-remote-sessions)
 
 Run a remote DSH agent through **the existing DSH workspace, conversation, composer, approvals and history UI, unchanged**. This package has no client entry, custom chat panel, remote web application, browser dependency or `dsh-remote` dependency.
 
@@ -16,7 +16,7 @@ Remote AgentLoop, models, tools, files and persistence
 
 ## Installation
 
-Install into a DSH profile (the plugin is a backend-only package; the native UI stays unchanged):
+Install into a DSH profile (the plugin is a backend-only package; the native UI stays unchanged; the package is published as [`dsh-remote-sessions` on npm](https://www.npmjs.com/package/dsh-remote-sessions)):
 
 ```sh
 dsh plugin --profile web add dsh-remote-sessions     # or: --profile desktop
