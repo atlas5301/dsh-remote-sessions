@@ -749,6 +749,50 @@ test('the generated resident patch pins a resident-owned credential store', () =
     'the store lives in the resident-owned runtime directory, never the shared home');
 });
 
+// ── 12. Operator round 8: membership rebinds retry until VERIFIED ────────────
+
+test('a failed membership rebind retries on the next list until the session is visible', async () => {
+  // The real failure mode: at restart the registry's write chain is busy; a
+  // one-shot detach+attach can lose the race (operator-reported: mygo has 3
+  // sessions, only 2 visible locally). The rebind must verify the session
+  // reached the workspace's VISIBLE membership and retry otherwise.
+  const stored = new Map([['w', { path: '/anchor', sessionIds: ['session-flaky'] }]]);
+  const pathIndex = new Map();
+  let attachAttempts = 0;
+  const entity = {
+    get path() { return '/anchor'; },
+    get sessionIds() { return (stored.get('w')?.sessionIds ?? []).filter(id => pathIndex.get(id) === '/anchor'); },
+    async attachSession(id) {
+      attachAttempts += 1;
+      if (attachAttempts === 1) throw new Error('registry write chain busy'); // transient failure
+      if (!(stored.get('w').sessionIds.includes(id))) {
+        pathIndex.set(id, '/anchor');
+        stored.get('w').sessionIds = [id, ...stored.get('w').sessionIds];
+      }
+    },
+    async detachSession(id) { stored.get('w').sessionIds = stored.get('w').sessionIds.filter(x => x !== id); },
+  };
+  const ctx = proxyContext({
+    mappings: [{ localPath: '/anchor', target: 'build-host', remotePath: '/home/operator/work' }],
+    remoteSessions: [{ sessionId: 'session-flaky', cwd: '/home/operator/work', updatedAt: 2 }],
+  });
+  ctx.workspaceRegistry = { resolveByPath: async path => (path === '/anchor' ? entity : null) };
+  const binding = { sessionId: 'session-flaky', remoteSessionId: 'session-flaky', target: 'build-host',
+    cwd: '/anchor', remoteCwd: '/home/operator/work', authority: 'a', runtimeId: 'r', instanceId: 'i' };
+  await ctx.bindings.set('session-flaky', binding);
+  const proxy = installNativeSessionProxy(ctx, { bindings: ctx.bindings, resolveWorkspace: ctx.resolveWorkspace, transport: ctx.transport });
+  try {
+    await ctx.sessionController.list({});   // first attempt: the attach throws
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(entity.sessionIds.includes('session-flaky'), false, 'the transient failure leaves the session invisible');
+    await ctx.sessionController.list({});   // retry on the next list
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(entity.sessionIds.includes('session-flaky'), true,
+      'the rebind retries until the session reaches VISIBLE workspace membership');
+    assert.ok(attachAttempts >= 2, 'at least two attach attempts ran');
+  } finally { await proxy.dispose(); }
+});
+
 // ── 11. Operator round 7: a bridge boot must never lose the session store ────
 
 test('web open verifies the bridge patch and repairs a clobbered store pin before launching', async () => {

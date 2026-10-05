@@ -30,7 +30,7 @@ Then restart the profile's runtime and open **Settings → Remote Sessions** to 
 
 Requires DSH **0.2.0-rc.2 or later (0.2.x)** on both hosts and Node 22.15+. SSH must authenticate non-interactively (key or agent) to the remote machine with the same Unix user that owns the runtime directory.
 
-**Version 0.8.8 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
+**Version 0.8.9 status:** implemented in source, tested against installed DSH **0.2.0-rc.2** with isolated real runtimes, and verified end-to-end on a live remote host over strict SSH (provisioning, model/credential sync, session proxy, file tree, terminals, upgrade and restart flows).
 
 ## Automatic remote setup
 
