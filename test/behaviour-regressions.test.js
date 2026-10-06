@@ -749,6 +749,34 @@ test('the generated resident patch pins a resident-owned credential store', () =
     'the store lives in the resident-owned runtime directory, never the shared home');
 });
 
+// ── 14. Operator round 10: the bridge web needs pnpm on its PATH ────────────
+
+test('the bridge launch carries the CLI and node bin dirs on PATH (pnpm ENOENT)', async () => {
+  // The live failure: the remote's plugin manager spawned `pnpm` and got
+  // ENOENT — pnpm IS installed (~/.npm-global/bin), but the SSH-launched web
+  // process inherited a PATH without it. The launch line must set PATH.
+  const target = machine({ remoteCli: '/home/ubuntu/.npm-global/lib/node_modules/@deepseek-ai/dsh/lib/bin.js' });
+  const { exec, calls } = scriptedExec([
+    { match: /tail -5 .*web\.log/, stdout: '', times: 1 },
+    { match: /pkill/, code: 0, times: 1 },
+    { match: /if \[ -x/, stdout: '/home/ubuntu/.npm-global/lib/node_modules/@deepseek-ai/dsh/lib/bin.js', times: 1 },
+    { match: /curl -s/, stdout: 'DEAD', times: 1 },
+    { match: /--dump-config/, stdout: '[]', times: 1 },
+    { match: /cat > '/, times: 1 },
+    { match: /grep -q/, code: 0, times: 1 },
+    { match: /setsid|nohup/, code: 0, times: 1 },
+    { match: /cat .*web\.log/, stdout: 'dsh web: http://127.0.0.1:39999/?token=bridge-Tok_011', times: 1 },
+  ]);
+  const remoteWeb = createRemoteWeb({ exec });
+  await assert.rejects(remoteWeb.open(target), error => ['WEB_FORWARD_FAILED', 'WEB_START_TIMEOUT'].includes(error.code));
+  const launch = calls.find(call => /setsid|nohup/.test(call.script));
+  assert.ok(launch, 'the launch ran');
+  assert.ok(/PATH=/.test(launch.script), 'the launch sets PATH explicitly');
+  assert.ok(launch.script.includes('/.npm-global/bin'), 'the CLI bin dir (where pnpm lives) is on PATH');
+  assert.ok(launch.script.includes('/usr/bin') || /PATH=[^\s]*node/.test(launch.script), 'the node bin dir is on PATH');
+  await remoteWeb.dispose();
+});
+
 // ── 13. Operator round 9: symlinked remote roots adopt canonical cwds ──────
 
 test('a session created through a symlinked project root is adopted into its workspace', async () => {
