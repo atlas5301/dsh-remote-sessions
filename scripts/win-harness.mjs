@@ -4,6 +4,7 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { createRemoteExec, createRemoteSetup } from '../lib/remote-setup.js';
 import { createRemoteWeb } from '../lib/remote-web.js';
+import { syncModelsToRemote } from '../lib/model-sync.js';
 
 function adapter({ argv, cwd, env }) {
   const child = nodeSpawn(argv[0], argv.slice(1), {
@@ -50,6 +51,16 @@ try {
   } else if (process.argv.includes('--sync')) {
     const result = await setup.sync(machine, new AbortController().signal);
     console.log('SYNC', JSON.stringify(result, null, 2));
+  } else if (process.argv.includes('--models')) {
+    const signal = new AbortController().signal;
+    const probe = await setup.probe(machine, signal);
+    const result = await syncModelsToRemote({
+      exec, machine, probe,
+      profileDir: `/home/zhainan/.dsh/profiles/${process.env.DSH_RS_PROFILE ?? 'remote-resident'}`,
+      localProfileDir: `${process.env.USERPROFILE}\\.dsh\\profiles\\desktop`,
+      signal,
+    });
+    console.log('MODELS', JSON.stringify(result));
   } else if (process.argv.includes('--web')) {
     const web = createRemoteWeb({ exec });
     const result = await web.open(machine, new AbortController().signal, null);
