@@ -11,7 +11,9 @@
 - id: system-prompt
   config:
     personaPrefix: You are a coding agent powered by the {{model}} model.
-    personaSuffix: Your working directory is {{cwd}}. This agent runs on the resident runtime machine, independently of connected user interfaces.
+    # DSH 0.2.1 registers only `provider` and `model` as prompt variables; the
+    # session's cwd is already part of the session context.
+    personaSuffix: This agent runs on the resident runtime machine, independently of connected user interfaces.
 - insert:
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
